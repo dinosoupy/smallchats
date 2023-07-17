@@ -49,6 +49,22 @@ func (s *MatchingServer) RemoveUser(user *User) {
 	}
 }
 
+func sendCandidate(conn *websocket.Conn, candidate *User) error {
+	// Marshal the candidate object to JSON
+	candidateJSON, err := json.Marshal(candidate)
+	if err != nil {
+		return err
+	}
+
+	// Send the candidate JSON over the WebSocket connection
+	err = conn.WriteMessage(websocket.TextMessage, candidateJSON)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *MatchingServer) MatchUsers() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -64,32 +80,76 @@ func (s *MatchingServer) MatchUsers() {
 	indexB := rand.Intn(len(s.users))
 	userB := s.users[indexB]
 
-	// Initiate P2P connection between the pair
-	// You can implement the logic for establishing the P2P connection here
+	// Send candidate to userA
+	candidateA := userB
+	sendCandidate(userA.Conn, candidateA)
+
+	// Send candidate to userB
+	candidateB := userA
+	sendCandidate(userB.Conn, candidateB)
 
 	fmt.Printf("Matched userA: %s, userB: %s\n", userA.Name, userB.Name)
 }
 
 func joinHandler(w http.ResponseWriter, r *http.Request) {
-	// Parse JSON data from request body
-	var user User
-	err := json.NewDecoder(r.Body).Decode(&user)
-	if err != nil {
-		log.Println(err)
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+	fmt.Println("Received a request at /join")
+
+	// Check if the request contains the necessary headers for WebSocket upgrade
+	if r.Header.Get("Upgrade") != "websocket" || r.Header.Get("Connection") != "Upgrade" {
+		http.Error(w, "Upgrade to WebSocket required", http.StatusBadRequest)
 		return
 	}
 
-	// Add the user to the matching server
-	matchServer.AddUser(&user)
+	fmt.Println("Upgrading connection to WebSocket")
 
-	fmt.Printf("%s joined. Active users:%d\n", user.UserID, len(matchServer.users))
+	// Upgrade the connection to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Failed to upgrade connection", http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	fmt.Println("Connection upgraded to WebSocket")
+
+	// Send confirmation response to the client
+	err = conn.WriteMessage(websocket.TextMessage, []byte("Connection upgraded to WebSocket"))
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	fmt.Println("Confirmation message sent to the client")
+
+	// // Create a new user with the WebSocket connection
+	// var user = User{
+	// 	Conn: conn,
+	// }
+
+	// // Add the user to the matching server
+	// matchServer.AddUser(&user)
+
+	// // Match users
+	// matchServer.MatchUsers()
+
+	// fmt.Printf("%s joined. Active users: %d\n", user.UserID, len(matchServer.users))
+
+	// // Handle WebSocket messages
+	// for {
+	// 	// Read the message from the WebSocket connection
+	// 	_, message, err := conn.ReadMessage()
+	// 	if err != nil {
+	// 		log.Println(err)
+	// 		break
+	// 	}
+	// }
 }
+
 
 var (
 	upgrader    = websocket.Upgrader{}
 	matchServer = NewMatchingServer()
-	healthy     = true // Initial server health status
 )
 
 func main() {
@@ -97,9 +157,9 @@ func main() {
 	signal.Notify(terminate, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
+		// Start WebSocket server
 		http.HandleFunc("/join", joinHandler)
-
-		fmt.Printf("Matching server is online at port 8000... (waiting for users to join)\n")
+		fmt.Println("Matching server is online at port 8000... (waiting for users to join)")
 		log.Fatal(http.ListenAndServe(":8000", nil))
 	}()
 
