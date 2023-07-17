@@ -7,6 +7,9 @@ import (
 	"math/rand"
 	"net/http"
 	"sync"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/gorilla/websocket"
 )
@@ -56,11 +59,10 @@ func (s *MatchingServer) MatchUsers() {
 	// Select two users at random
 	indexA := rand.Intn(len(s.users))
 	userA := s.users[indexA]
-	s.users = append(s.users[:indexA], s.users[indexA+1:]...)
+	// s.users = append(s.users[:indexA], s.users[indexA+1:]...)
 
 	indexB := rand.Intn(len(s.users))
 	userB := s.users[indexB]
-	s.users = append(s.users[:indexB], s.users[indexB+1:]...)
 
 	// Initiate P2P connection between the pair
 	// You can implement the logic for establishing the P2P connection here
@@ -81,21 +83,29 @@ func joinHandler(w http.ResponseWriter, r *http.Request) {
 	// Add the user to the matching server
 	matchServer.AddUser(&user)
 
-	// Match users
-	matchServer.MatchUsers()
-
-	fmt.Println("New user joined. Active users:", len(matchServer.users))
+	fmt.Printf("%s joined. Active users:%d\n", user.UserID, len(matchServer.users))
 }
 
-
 var (
-	upgrader     = websocket.Upgrader{}
-	matchServer  = NewMatchingServer()
+	upgrader    = websocket.Upgrader{}
+	matchServer = NewMatchingServer()
+	healthy     = true // Initial server health status
 )
 
 func main() {
-	http.HandleFunc("/join", joinHandler)
+	terminate := make(chan os.Signal, 1)
+	signal.Notify(terminate, os.Interrupt, syscall.SIGTERM)
 
-	fmt.Printf("Starting server at port 8000\n")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	go func() {
+		http.HandleFunc("/join", joinHandler)
+
+		fmt.Printf("Matching server is online at port 8000... (waiting for users to join)\n")
+		log.Fatal(http.ListenAndServe(":8000", nil))
+	}()
+
+	// Wait for a termination signal
+	<-terminate
+	fmt.Println("\nShutting down the server...")
+
+	fmt.Println("Server gracefully stopped.")
 }
