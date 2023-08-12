@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Small Chats example</title>
+<script type="text/javascript">
+window.onload = function () {
+	var conn;
+
+	if (window["WebSocket"]) {
+		conn = new WebSocket("ws://localhost:8080/ws?userid=012345");
+		conn.onclose = function (evt) {
+        console.log("Connection closed.");
+    };
+    conn.onmessage = function (evt) {
+    		console.log("Message from server: ", evt.data);
+    		var msg = document.getElementById("msg");
+       	msg.innerHTML = evt.data;
+    };
+	}
+}
+</script>
+</head>
+<body>
+<form id="form">
+		<label for="userid">User ID:</label><br />
+    <input type="text" id="userid" /><br />
+    <button type="submit">Submit</button>
+    <div id="msg">Server message:</div>
+</form>
+</body>
+</html>
