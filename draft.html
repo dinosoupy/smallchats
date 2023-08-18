@@ -28,8 +28,6 @@ conn.onopen = async function (evt) {
   document.getElementById('localVideo').srcObject = stream;
   // set track for peer object
   stream.getTracks().forEach(track => peer.addTrack(track, stream));
-  
-
   // console.log(btoa(peer.localDescription.sdp))
   // conn.send(["offer", btoa(peer.localDescription.sdp)])
 }
