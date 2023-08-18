@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 	"time"
-
+	"bytes"
 	"github.com/gorilla/websocket"
 )
 
@@ -19,6 +19,7 @@ type Client struct {
 	clientID string          // userID in supabase
 	conn     *websocket.Conn // websocket connection object
 	send     chan []byte    // channel for sending messages
+	receive 	chan []byte // channel for reciving messages
 }
 
 func main() {
@@ -39,8 +40,36 @@ func match() {
 			candidateB := dequeue()
 			log.Println("Trying to match users", candidateA.clientID, "and", candidateB.clientID)
 
-			candidateA.send <- []byte(candidateB.clientID)
-			candidateB.send <- []byte(candidateA.clientID)
+			candidateA.send <- []byte("requestOffer,")
+			if response, ok:= <-candidateA.receive; ok {
+				idx:=bytes.IndexRune(response, ',')
+				// messageType:=string(response[:idx])
+				messageBody:=string(response[idx+1:])
+				// log.Println(messageType, messageBody)
+
+				candidateB.send <- []byte("requestAnswer," + messageBody)
+				if response, ok:= <-candidateB.receive; ok {
+					idx:=bytes.IndexRune(response, ',')
+					// messageType:=string(response[:idx])
+					messageBody:=string(response[idx+1:])
+					// log.Println(messageType, messageBody)
+
+					candidateA.send <- []byte("answer," + messageBody)	
+
+					for i:=0; i<1; i++ {
+						if response, ok:= <-candidateA.receive; ok {
+							idx:=bytes.IndexRune(response, ',')
+							// messageType:=string(response[:idx])
+							messageBody:=string(response[idx+1:])
+							// log.Println(messageBody)
+							candidateB.send <- []byte("iceCandidate," + messageBody)	
+						}
+					}		
+
+					continue		
+				}
+			}
+			
 		} else {
 			log.Println("Not enough users to match")
 			time.Sleep(10 * time.Second)
@@ -49,7 +78,7 @@ func match() {
 }
 
 func serveWs(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Upgrade(w, r, nil, 1024, 1024)
+	conn, err := websocket.Upgrade(w, r, nil, 131072, 131072)
 
   if err != nil {
       http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -58,17 +87,20 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 
 	userID := r.URL.Query().Get("userid") // wss://localhost:8080?userid=0123435
 
-	sendChannel := make(chan []byte, 256) // each message is a slice of bytes, 256 messages can be stored in buffer
+	sendChannel := make(chan []byte, 131072) // each message is a slice of bytes, 131072 messages can be stored in buffer
+	receiveChannel := make(chan []byte, 512)
 
 	newClient := &Client{
 		clientID: userID,
 		conn:     conn,
 		send:     sendChannel,
+		receive: receiveChannel,
 	}
 
 	enqueue(newClient)
 
 	go newClient.writePump()
+	go newClient.readPump()
 }
 
 func enqueue(user *Client) {
@@ -87,9 +119,41 @@ func dequeue() *Client {
 	}
 }
 
+func (c *Client) readPump() {
+	defer func() {
+		log.Println("Closed at location 1")
+		c.conn.Close()
+	}()
+	c.conn.SetReadLimit(131072)
+	c.conn.SetReadDeadline(time.Now().Add(60*time.Second))
+	c.conn.SetPongHandler(func(string) error {
+		log.Println("Closed at location 2")
+		c.conn.SetReadDeadline(time.Now().Add(60*time.Second))
+		return nil
+	})
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Println("Closed at location 3")
+				log.Printf("UnexpectedCloseError: %v", err)
+			}
+			break
+		}
+
+		// slice upto the first ',' - this is the messageType
+		// 
+		// messageType := string(message[:idx])
+		// messageBody:=string(message[idx+1:])
+
+		c.receive <- message
+	}
+}
+
 func (c *Client) writePump() {
 	ticker := time.NewTicker(50 * time.Second)
 	defer func() {
+		log.Println("Closed at location 4")
 		ticker.Stop()
 		c.conn.Close()
 	}()
@@ -98,12 +162,15 @@ func (c *Client) writePump() {
 		case message, ok := <-c.send:
 			c.conn.SetWriteDeadline(time.Now().Add(10*time.Second))
 			if !ok {
+				log.Println("Closed at location 5")
 				// The server closed the channel
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return			
 			}
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
+				log.Println("Closed at location 6")
+				log.Println(message)
 				return
 			}
 			w.Write(message)
@@ -116,11 +183,13 @@ func (c *Client) writePump() {
 			}
 
 			if err := w.Close(); err != nil {
+				log.Println("Closed at location 7")
 				return
 			}
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(10*time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Println("Closed at location 8")
 				return
 			}
 		}

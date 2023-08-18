@@ -3,21 +3,102 @@
 <head>
 <title>Small Chats example</title>
 <script type="text/javascript">
-window.onload = function () {
-	var conn;
 
-	if (window["WebSocket"]) {
-		conn = new WebSocket("ws://localhost:8080/ws?userid=012345");
-		conn.onclose = function (evt) {
-        console.log("Connection closed.");
-    };
-    conn.onmessage = function (evt) {
-    		console.log("Message from server: ", evt.data);
-    		var msg = document.getElementById("msg");
-       	msg.innerHTML = evt.data;
-    };
-	}
+// Creating the peer
+const peer = new RTCPeerConnection({
+  iceServers: [
+    {
+      urls: "stun:stun.stunprotocol.org"
+    }
+  ]
+});
+
+var conn;
+
+conn = new WebSocket("ws://localhost:8080/ws?userid=012345");
+
+conn.onopen = async function (evt) {
+	// get user media 
+	const constraints = {
+    audio: true,
+    video: true
+  };
+  const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  // display local video
+  document.getElementById('localVideo').srcObject = stream;
+  // set track for peer object
+  stream.getTracks().forEach(track => peer.addTrack(track, stream));
+  
+
+  // console.log(btoa(peer.localDescription.sdp))
+  // conn.send(["offer", btoa(peer.localDescription.sdp)])
 }
+
+conn.onclose = function (evt) {
+  console.log("Connection closed.", evt);
+};
+
+conn.onmessage = async function (evt) {
+	// console.log("Message from server: ", evt.data);
+	// var msg = document.getElementById("msg");
+ 	// msg.innerHTML = evt.data;
+
+  const message = evt.data;
+  const idx = message.indexOf(",");
+  const messageType = message.substring(0, idx);
+  const messageBody = message.substring(idx + 1);
+
+  switch (messageType) {
+  case "requestOffer":
+    // client has been requested to send an offer: send local sdp
+    console.log("1 Message from server: ", messageType, messageBody)
+    // create offer and set local description
+    const localPeerOffer = await peer.createOffer();
+    await peer.setLocalDescription(new RTCSessionDescription(localPeerOffer));
+    conn.send(["offer", btoa(peer.localDescription.sdp)])
+    break;
+
+  case "requestAnswer":
+    // client has been requested to answer to an offer: set remote sdp, set local sdp, send local sdp as answer
+    console.log("2 Message from server: ", messageType, messageBody)
+    await peer.setRemoteDescription(new RTCSessionDescription({type:"offer", sdp:atob(messageBody)}));
+    const peerAnswer = await peer.createAnswer();
+    await peer.setLocalDescription(new RTCSessionDescription(peerAnswer));
+
+    conn.send(["answer", btoa(peer.localDescription.sdp)]);
+    break;
+
+  case "answer":
+    // client has been sent an answer to their offer: set remote sdp
+    console.log("3 Message from server: ", messageType, messageBody)
+    await peer.setRemoteDescription(new RTCSessionDescription({type:"answer", sdp:atob(messageBody)}));
+    break;
+
+  case "iceCandidate":
+    //client has received new ice candidate: add it to the peer connection
+    console.log("4 Message from server: ", messageType, messageBody)
+    try {
+      // const candidate = new RTCIceCandidate({ice:});
+      await peer.addIceCandidate(new RTCIceCandidate(JSON.parse(atob(messageBody))));
+    } catch (error) {
+      console.log("Error adding ice candidate", error)
+    }
+    break;
+  }
+};
+
+peer.addEventListener('track', (event) => {
+  console.log("Got media stream: ", event.streams)
+  const [stream] = event.streams;
+  document.getElementById('remoteVideo').srcObject = stream;
+})
+
+// ICE layer
+peer.onicecandidate = (event) => {
+  console.log(JSON.stringify(event.candidate))
+  conn.send(["iceCandidate", btoa(JSON.stringify(event.candidate))]);
+}
+
 </script>
 </head>
 <body>
@@ -27,5 +108,13 @@ window.onload = function () {
     <button type="submit">Submit</button>
     <div id="msg">Server message:</div>
 </form>
+<div class="remote-video">
+    <div>Call:</div>
+    <video id="remoteVideo" playsinline autoplay></video>
+</div>
+<div class="local-video">
+    <div>Me:</div>
+    <video id="localVideo" playsinline autoplay muted></video>
+</div>
 </body>
 </html>
