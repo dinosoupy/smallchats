@@ -8,14 +8,17 @@
 const peer = new RTCPeerConnection({
   iceServers: [
     {
-      urls: "stun:stun.stunprotocol.org"
+      urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+      credential: 'webrtc',
+      username: 'webrtc'
     }
   ]
 });
 
 var conn;
-
-conn = new WebSocket("ws://localhost:8080/ws?userid=012345");
+// wss://smallchats-server.onrender.com/ws?userid=012345
+// wss://localhost:8080/ws?useris=012345
+conn = new WebSocket("ws://smallchats-server.onrender.com/ws?userid=012345");
 
 conn.onopen = async function (evt) {
 	// get user media 
