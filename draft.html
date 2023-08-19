@@ -20,8 +20,8 @@ const peer = new RTCPeerConnection({
 
 var conn;
 // wss://smallchats-server.onrender.com/ws?userid=012345
-// wss://localhost:8080/ws?useris=012345
-conn = new WebSocket("wss://smallchats-server.onrender.com/ws?userid=012345");
+// wss://localhost:8080/ws?userid=012345
+conn = new WebSocket("ws://localhost:8080/ws?userid=012345");
 
 conn.onopen = async function (evt) {
 	// get user media 

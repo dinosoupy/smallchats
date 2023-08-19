@@ -56,15 +56,7 @@ func match() {
 
 					candidateA.send <- []byte("answer," + messageBody)	
 
-					for i:=0; i<1; i++ {
-						if response, ok:= <-candidateA.receive; ok {
-							idx:=bytes.IndexRune(response, ',')
-							// messageType:=string(response[:idx])
-							messageBody:=string(response[idx+1:])
-							// log.Println(messageBody)
-							candidateB.send <- []byte("iceCandidate," + messageBody)	
-						}
-					}		
+					go trickleIce(candidateA, candidateB)
 
 					continue		
 				}
@@ -74,6 +66,30 @@ func match() {
 			log.Println("Not enough users to match")
 			time.Sleep(10 * time.Second)
 		}
+	}
+}
+
+// returns the messageType and messageBody from a give message of type []byte
+func getMessageBody(message []byte) (string, string) {
+	idx:=bytes.IndexRune(message, ',')
+	messageType:=string(message[:idx])
+	messageBody:=string(message[idx+1:])
+
+	return messageType, messageBody
+}
+
+func trickleIce(candidateA, candidateB *Client) {
+	responseA:= <-candidateA.receive
+	_, messageA:= getMessageBody(responseA)
+
+	responseB:= <-candidateB.receive
+	_, messageB:= getMessageBody(responseB)
+	
+	log.Printf("Trickling ICE now: \n Ice candidate from A: %s \n Ice candidate from B: %s\n", messageA, messageB)
+
+	for messageA!="" || messageB!="" {
+		candidateB.send<-[]byte("iceCandidate," + messageA)
+		candidateA.send<-[]byte("iceCandidate," + messageB)
 	}
 }
 
@@ -88,7 +104,7 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("userid") // wss://localhost:8080?userid=0123435
 
 	sendChannel := make(chan []byte, 131072) // each message is a slice of bytes, 131072 messages can be stored in buffer
-	receiveChannel := make(chan []byte, 512)
+	receiveChannel := make(chan []byte, 131072)
 
 	newClient := &Client{
 		clientID: userID,
