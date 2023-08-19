@@ -23,6 +23,11 @@ type Client struct {
 	receive 	chan []byte // channel for reciving messages
 }
 
+type Candidate struct {
+	ClientID string	`json:"ClientID"`
+	RoomID	string	`json:"RoomID"`
+}
+
 func main() {
 	go match() 
 
@@ -37,17 +42,30 @@ func main() {
 func match() {
 	for {
 		if len(queue) > 1 {
-			candidateA := dequeue()
-			candidateB := dequeue()
+			clientA := dequeue()
+			clientB := dequeue()
 			
-			roomID, _:=json.Marshal(uuid.New())
-			log.Println("Trying to match users", candidateA.clientID, "and", candidateB.clientID, "with roomID: ", roomID)
+			roomID:=uuid.New().String()
+			log.Println(roomID, clientA.clientID, clientB.clientID)
 
-			candidateA.send <-roomID
-			candidateB.send <-roomID
+			candidateA, _:=json.Marshal(&Candidate{
+				ClientID: clientA.clientID,
+				RoomID: roomID,
+			})
+
+			candidateB, _:=json.Marshal(&Candidate{
+				ClientID: clientB.clientID,
+				RoomID: roomID,
+			})
+
+			log.Printf("Trying to match users %v and %v", clientA.clientID, clientB.clientID)
+			log.Printf("Sending candidates %v and %v", string(candidateA), string(candidateB))
+
+			clientB.send<-candidateA
+			clientA.send<-candidateB
 			
 		} else {
-			log.Println("Not enough users to match")
+			log.Printf("Not enough users to match. Online: %d user(s)", len(queue))
 			time.Sleep(10 * time.Second)
 		}
 	}
