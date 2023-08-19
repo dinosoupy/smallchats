@@ -43,52 +43,20 @@ conn.onclose = function (evt) {
 };
 
 conn.onmessage = async function (evt) {
-	// console.log("Message from server: ", evt.data);
-	// var msg = document.getElementById("msg");
- 	// msg.innerHTML = evt.data;
+	console.log("Message from server: ", evt.data);
+	var msg = document.getElementById("msg");
+ 	msg.innerHTML = evt.data;
 
-  const message = evt.data;
-  const idx = message.indexOf(",");
-  const messageType = message.substring(0, idx);
-  const messageBody = message.substring(idx + 1);
+  // const message = evt.data;
+  // const idx = message.indexOf(",");
+  // const messageType = message.substring(0, idx);
+  // const messageBody = message.substring(idx + 1);
 
-  switch (messageType) {
-  case "requestOffer":
-    // client has been requested to send an offer: send local sdp
-    console.log("1 Message from server: ", messageType, messageBody)
-    // create offer and set local description
-    const localPeerOffer = await peer.createOffer();
-    await peer.setLocalDescription(new RTCSessionDescription(localPeerOffer));
-    conn.send(["offer", btoa(peer.localDescription.sdp)])
-    break;
-
-  case "requestAnswer":
-    // client has been requested to answer to an offer: set remote sdp, set local sdp, send local sdp as answer
-    console.log("2 Message from server: ", messageType, messageBody)
-    await peer.setRemoteDescription(new RTCSessionDescription({type:"offer", sdp:atob(messageBody)}));
-    const peerAnswer = await peer.createAnswer();
-    await peer.setLocalDescription(new RTCSessionDescription(peerAnswer));
-
-    conn.send(["answer", btoa(peer.localDescription.sdp)]);
-    break;
-
-  case "answer":
-    // client has been sent an answer to their offer: set remote sdp
-    console.log("3 Message from server: ", messageType, messageBody)
-    await peer.setRemoteDescription(new RTCSessionDescription({type:"answer", sdp:atob(messageBody)}));
-    break;
-
-  case "iceCandidate":
-    //client has received new ice candidate: add it to the peer connection
-    console.log("4 Message from server: ", messageType, messageBody)
-    try {
-      // const candidate = new RTCIceCandidate({ice:});
-      await peer.addIceCandidate(new RTCIceCandidate(JSON.parse(atob(messageBody))));
-    } catch (error) {
-      console.log("Error adding ice candidate", error)
-    }
-    break;
-  }
+  // switch (messageType) {
+  // case "roomID":
+  //   // client has received roomID
+  //   console.log("Got room ID from server: ",messageBody)
+  // }
 };
 
 peer.addEventListener('track', (event) => {

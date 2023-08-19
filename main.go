@@ -4,8 +4,9 @@ import (
 	"log"
 	"net/http"
 	"time"
-	"bytes"
+	"encoding/json"
 	"github.com/gorilla/websocket"
+	"github.com/google/uuid"
 )
 
 var queue []*Client // global queue
@@ -38,29 +39,12 @@ func match() {
 		if len(queue) > 1 {
 			candidateA := dequeue()
 			candidateB := dequeue()
-			log.Println("Trying to match users", candidateA.clientID, "and", candidateB.clientID)
+			
+			roomID, _:=json.Marshal(uuid.New())
+			log.Println("Trying to match users", candidateA.clientID, "and", candidateB.clientID, "with roomID: ", roomID)
 
-			candidateA.send <- []byte("requestOffer,")
-			if response, ok:= <-candidateA.receive; ok {
-				idx:=bytes.IndexRune(response, ',')
-				// messageType:=string(response[:idx])
-				messageBody:=string(response[idx+1:])
-				// log.Println(messageType, messageBody)
-
-				candidateB.send <- []byte("requestAnswer," + messageBody)
-				if response, ok:= <-candidateB.receive; ok {
-					idx:=bytes.IndexRune(response, ',')
-					// messageType:=string(response[:idx])
-					messageBody:=string(response[idx+1:])
-					// log.Println(messageType, messageBody)
-
-					candidateA.send <- []byte("answer," + messageBody)	
-
-					go trickleIce(candidateA, candidateB)
-
-					continue		
-				}
-			}
+			candidateA.send <-roomID
+			candidateB.send <-roomID
 			
 		} else {
 			log.Println("Not enough users to match")
@@ -69,32 +53,8 @@ func match() {
 	}
 }
 
-// returns the messageType and messageBody from a give message of type []byte
-func getMessageBody(message []byte) (string, string) {
-	idx:=bytes.IndexRune(message, ',')
-	messageType:=string(message[:idx])
-	messageBody:=string(message[idx+1:])
-
-	return messageType, messageBody
-}
-
-func trickleIce(candidateA, candidateB *Client) {
-	responseA:= <-candidateA.receive
-	_, messageA:= getMessageBody(responseA)
-
-	responseB:= <-candidateB.receive
-	_, messageB:= getMessageBody(responseB)
-	
-	log.Printf("Trickling ICE now: \n Ice candidate from A: %s \n Ice candidate from B: %s\n", messageA, messageB)
-
-	for messageA!="" || messageB!="" {
-		candidateB.send<-[]byte("iceCandidate," + messageA)
-		candidateA.send<-[]byte("iceCandidate," + messageB)
-	}
-}
-
 func serveWs(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Upgrade(w, r, nil, 131072, 131072)
+	conn, err := websocket.Upgrade(w, r, nil, 512, 512)
 
   if err != nil {
       http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -103,8 +63,8 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 
 	userID := r.URL.Query().Get("userid") // wss://localhost:8080?userid=0123435
 
-	sendChannel := make(chan []byte, 131072) // each message is a slice of bytes, 131072 messages can be stored in buffer
-	receiveChannel := make(chan []byte, 131072)
+	sendChannel := make(chan []byte, 512) // each message is a slice of bytes, 512 messages can be stored in buffer
+	receiveChannel := make(chan []byte, 512)
 
 	newClient := &Client{
 		clientID: userID,
