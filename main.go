@@ -39,12 +39,54 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
+// func match() {
+// 	for {
+// 		if len(queue) > 1 {
+// 			clientA := dequeue()
+// 			clientB := dequeue()
+			
+// 			roomID:=uuid.New().String()
+// 			log.Println(roomID, clientA.clientID, clientB.clientID)
+
+// 			candidateA, _:=json.Marshal(&Candidate{
+// 				ClientID: clientA.clientID,
+// 				RoomID: roomID,
+// 			})
+
+// 			candidateB, _:=json.Marshal(&Candidate{
+// 				ClientID: clientB.clientID,
+// 				RoomID: roomID,
+// 			})
+
+// 			log.Printf("Trying to match users %v and %v", clientA.clientID, clientB.clientID)
+// 			log.Printf("Sending candidates %v and %v", string(candidateA), string(candidateB))
+
+// 			clientB.send<-candidateA
+// 			clientA.send<-candidateB
+			
+// 		} else {
+// 			log.Printf("Not enough users to match. Online: %d user(s)", len(queue))
+// 			time.Sleep(10 * time.Second)
+// 		}
+// 	}
+// }
+
 func match() {
 	for {
 		if len(queue) > 1 {
-			clientA := dequeue()
-			clientB := dequeue()
+			var clientA, clientB *Client
 			
+			// select random clients
+			for { 
+				randIndexA:=rand.Intn(len(queue))
+				clientA = queue[randIndexA]
+				randIndexB:=rand.Intn(len(queue))
+				clientB = queue[randIndexB]
+				if clientB != clientA {
+					break
+				}
+			}
+
 			roomID:=uuid.New().String()
 			log.Println(roomID, clientA.clientID, clientB.clientID)
 
@@ -63,6 +105,20 @@ func match() {
 
 			clientB.send<-candidateA
 			clientA.send<-candidateB
+
+			// Wait for response
+      responseA := <-clientA.receive
+      responseB := <-clientB.receive
+
+      if responseA == "accept" && responseB == "accept" {
+          // Both clients accepted the match
+          // Remove clients from queue
+          queue = append(queue[:randIndexA], queue[randIndexA+1:])
+          queue = append(queue[:randIndexB], queue[randIndexB+1:])
+
+      } else {
+          // One or both clients declined the match
+      }
 			
 		} else {
 			log.Printf("Not enough users to match. Online: %d user(s)", len(queue))
