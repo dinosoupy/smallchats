@@ -98,10 +98,12 @@ func askForApproval(clientA, clientB *Client, approvalChannel chan bool) {
 	responseA := parseResponse(<-clientA.receive)
 	responseB := parseResponse(<-clientB.receive)
 
-	if responseA == "accept" && responseB == "accept" {
-		approvalChannel <- true
-	} else {
-		approvalChannel <- false
+	for responseA != "" && responseB != "" {
+		if responseA == "accept" && responseB == "accept" {
+			approvalChannel <- true
+		} else {
+			approvalChannel <- false
+		}
 	}
 }
 
@@ -124,7 +126,7 @@ func match() {
 			}
 
 			go askForApproval(clientA, clientB, approvalChannel)	
-				
+
 			log.Println("Waiting for approval")
 			approval := <-approvalChannel
 
