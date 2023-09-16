@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-var queue map[string]*Client // global queue
+var queue = make(map[string]*Client) // global queue
 
 var (
 	newline = []byte{'\n'}
@@ -70,9 +70,6 @@ func askForApproval(clientA, clientB *Client) {
 
 	for responseA != "" && responseB != "" {
 		if responseA == "accept" && responseB == "accept" {
-			delete(queue, clientA.clientID)
-			delete(queue, clientB.clientID)
-
 			// create room id
       roomID:=uuid.New().String()
 			log.Println(roomID, clientA.clientID, clientB.clientID)
@@ -89,6 +86,8 @@ func askForApproval(clientA, clientB *Client) {
 			break
 		} else {
 			log.Println("At least one response was not 'accept'.")
+			queue[clientA.clientID] = clientA
+			queue[clientB.clientID] = clientB
 		}
 	}
 }
@@ -129,6 +128,9 @@ func match() {
 					break
 				}
 			}
+
+			delete(queue, clientA.clientID)
+			delete(queue, clientB.clientID)
 
 			log.Println("Waiting for approval")
 			go askForApproval(clientA, clientB)	
