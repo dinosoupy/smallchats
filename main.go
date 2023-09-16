@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"math/rand"
 	"encoding/json"
 	"github.com/gorilla/websocket"
 	"github.com/google/uuid"
@@ -23,9 +24,9 @@ type Client struct {
 	receive 	chan []byte // channel for reciving messages
 }
 
-type Candidate struct {
-	ClientID string	`json:"ClientID"`
-	RoomID	string	`json:"RoomID"`
+type Message struct {
+	MsgType string `json: "MsgType"`
+	Data string	`json:"Data"`
 }
 
 func main() {
@@ -37,6 +38,12 @@ func main() {
 	http.HandleFunc("/ws", serveWs)
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func parseResponse(jsonResponse []byte) string {
+	var msg string
+	_ = json.Unmarshal(jsonResponse, &msg)
+	return msg
 }
 
 // func match() {
@@ -75,29 +82,27 @@ func match() {
 	for {
 		if len(queue) > 1 {
 			var clientA, clientB *Client
+			var randIndexA, randIndexB int
 			
 			// select random clients
 			for { 
-				randIndexA:=rand.Intn(len(queue))
+				randIndexA=rand.Intn(len(queue))
 				clientA = queue[randIndexA]
-				randIndexB:=rand.Intn(len(queue))
+				randIndexB=rand.Intn(len(queue))
 				clientB = queue[randIndexB]
 				if clientB != clientA {
 					break
 				}
-			}
+			}			
 
-			roomID:=uuid.New().String()
-			log.Println(roomID, clientA.clientID, clientB.clientID)
-
-			candidateA, _:=json.Marshal(&Candidate{
-				ClientID: clientA.clientID,
-				RoomID: roomID,
+			candidateA, _:=json.Marshal(&Message{
+				MsgType: "candidate",
+				Data: clientA.clientID,
 			})
 
-			candidateB, _:=json.Marshal(&Candidate{
-				ClientID: clientB.clientID,
-				RoomID: roomID,
+			candidateB, _:=json.Marshal(&Message{
+				MsgType: "candidate",
+				Data: clientB.clientID,
 			})
 
 			log.Printf("Trying to match users %v and %v", clientA.clientID, clientB.clientID)
@@ -107,17 +112,32 @@ func match() {
 			clientA.send<-candidateB
 
 			// Wait for response
-      responseA := <-clientA.receive
-      responseB := <-clientB.receive
+      responseA := parseResponse(<-clientA.receive)
+      responseB := parseResponse(<-clientB.receive)
 
       if responseA == "accept" && responseB == "accept" {
           // Both clients accepted the match
           // Remove clients from queue
-          queue = append(queue[:randIndexA], queue[randIndexA+1:])
-          queue = append(queue[:randIndexB], queue[randIndexB+1:])
+          log.Printf("Match successful: %v and %v", clientA.clientID, clientB.clientID)
+          queue = append(queue[:randIndexA], queue[randIndexA+1:]...)
+          queue = append(queue[:randIndexB], queue[randIndexB+1:]...)
+
+          // create room id
+          roomID:=uuid.New().String()
+					log.Println(roomID, clientA.clientID, clientB.clientID)
+
+					// selected candidates become peers, both have common roomID
+					roomMsg, _:=json.Marshal(&Message{
+						MsgType: "room",
+						Data: roomID,
+					})
+
+					clientB.send<-roomMsg
+					clientA.send<-roomMsg
 
       } else {
           // One or both clients declined the match
+          continue
       }
 			
 		} else {
