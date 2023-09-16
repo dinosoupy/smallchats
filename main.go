@@ -83,6 +83,7 @@ func match() {
 		if len(queue) > 1 {
 			var clientA, clientB *Client
 			var randIndexA, randIndexB int
+			var responseA, responseB string
 			
 			// select random clients
 			for { 
@@ -111,9 +112,18 @@ func match() {
 			clientB.send<-candidateA
 			clientA.send<-candidateB
 
+			// Start timer
+			timer := time.NewTimer(10 * time.Second)
+
 			// Wait for response
-      responseA := parseResponse(<-clientA.receive)
-      responseB := parseResponse(<-clientB.receive)
+      responseA = parseResponse(<-clientA.receive)
+      responseB = parseResponse(<-clientB.receive)
+
+			select {
+			case <-timer.C:
+				log.Println("Timer expired. Continuing...")
+				continue
+			}
 
       if responseA == "accept" && responseB == "accept" {
           // Both clients accepted the match
