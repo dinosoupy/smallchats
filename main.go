@@ -78,13 +78,40 @@ func parseResponse(jsonResponse []byte) string {
 // 	}
 // }
 
+func askForApproval(clientA, clientB *Client, approvalChannel chan bool) {
+	candidateA, _:=json.Marshal(&Message{
+		MsgType: "candidate",
+		Data: clientA.clientID,
+	})
+
+	candidateB, _:=json.Marshal(&Message{
+		MsgType: "candidate",
+		Data: clientB.clientID,
+	})
+
+	log.Printf("Trying to match users %v and %v", clientA.clientID, clientB.clientID)
+	log.Printf("Sending candidates %v and %v", string(candidateA), string(candidateB))
+
+	clientB.send<-candidateA
+	clientA.send<-candidateB
+
+	responseA := parseResponse(<-clientA.receive)
+	responseB := parseResponse(<-clientB.receive)
+
+	if responseA == "accept" && responseB == "accept" {
+		approvalChannel <- true
+	} else {
+		approvalChannel <- false
+	}
+}
+
 func match() {
 	for {
 		if len(queue) > 1 {
 			var clientA, clientB *Client
 			var randIndexA, randIndexB int
-			var responseA, responseB string
-			
+			var approvalChannel = make(chan bool)
+
 			// select random clients
 			for { 
 				randIndexA=rand.Intn(len(queue))
@@ -94,61 +121,37 @@ func match() {
 				if clientB != clientA {
 					break
 				}
-			}			
-
-			candidateA, _:=json.Marshal(&Message{
-				MsgType: "candidate",
-				Data: clientA.clientID,
-			})
-
-			candidateB, _:=json.Marshal(&Message{
-				MsgType: "candidate",
-				Data: clientB.clientID,
-			})
-
-			log.Printf("Trying to match users %v and %v", clientA.clientID, clientB.clientID)
-			log.Printf("Sending candidates %v and %v", string(candidateA), string(candidateB))
-
-			clientB.send<-candidateA
-			clientA.send<-candidateB
-
-			// Start timer
-			timer := time.NewTimer(10 * time.Second)
-
-			// Wait for response
-      responseA = parseResponse(<-clientA.receive)
-      responseB = parseResponse(<-clientB.receive)
-
-			select {
-			case <-timer.C:
-				log.Println("Timer expired. Continuing...")
-				continue
 			}
 
-      if responseA == "accept" && responseB == "accept" {
-          // Both clients accepted the match
-          // Remove clients from queue
-          log.Printf("Match successful: %v and %v", clientA.clientID, clientB.clientID)
-          queue = append(queue[:randIndexA], queue[randIndexA+1:]...)
-          queue = append(queue[:randIndexB], queue[randIndexB+1:]...)
+			go askForApproval(clientA, clientB, approvalChannel)	
+				
+			log.Println("Waiting for approval")
+			approval := <-approvalChannel
 
-          // create room id
-          roomID:=uuid.New().String()
-					log.Println(roomID, clientA.clientID, clientB.clientID)
+			if approval {
+				// Both clients accepted the match
+        // Remove clients from queue
+        log.Printf("Match successful: %v and %v", clientA.clientID, clientB.clientID)
+        queue = append(queue[:randIndexA], queue[randIndexA+1:]...)
+        queue = append(queue[:randIndexB], queue[randIndexB+1:]...)
 
-					// selected candidates become peers, both have common roomID
-					roomMsg, _:=json.Marshal(&Message{
-						MsgType: "room",
-						Data: roomID,
-					})
+        // create room id
+        roomID:=uuid.New().String()
+				log.Println(roomID, clientA.clientID, clientB.clientID)
 
-					clientB.send<-roomMsg
-					clientA.send<-roomMsg
+				// selected candidates become peers, both have common roomID
+				roomMsg, _:=json.Marshal(&Message{
+					MsgType: "room",
+					Data: roomID,
+				})
 
-      } else {
-          // One or both clients declined the match
-          continue
-      }
+				clientB.send<-roomMsg
+				clientA.send<-roomMsg
+
+			} else {
+				log.Println("At least one response was not 'accept'.")
+				continue
+			}
 			
 		} else {
 			log.Printf("Not enough users to match. Online: %d user(s)", len(queue))
