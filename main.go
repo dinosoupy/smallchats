@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-var queue []*Client // global queue
+var queue map[string]*Client // global queue
 
 var (
 	newline = []byte{'\n'}
@@ -70,8 +70,8 @@ func askForApproval(clientA, clientB *Client) {
 
 	for responseA != "" && responseB != "" {
 		if responseA == "accept" && responseB == "accept" {
-			// queue = append(queue[:randIndexA], queue[randIndexA+1:]...)
-			// queue = append(queue[:randIndexB], queue[randIndexB+1:]...)
+			delete(queue, clientA.clientID)
+			delete(queue, clientB.clientID)
 
 			// create room id
       roomID:=uuid.New().String()
@@ -110,10 +110,17 @@ func match() {
 
 			// select random clients
 			for { 
-				randIndexA=rand.Intn(len(queue))
-				clientA = queue[randIndexA]
-				randIndexB=rand.Intn(len(queue))
-				clientB = queue[randIndexB]
+				keys := make([]string, 0, len(queue))
+
+				for key := range queue {
+					keys = append(keys, key)
+				}
+
+				randIndexA=rand.Intn(len(keys))
+				clientA = queue[keys[randIndexA]]
+				randIndexB=rand.Intn(len(keys))
+				clientB = queue[keys[randIndexB]]
+
 				if clientB == clientA || existsIn(clientB.clientID, clientA.pastMatches) {
 					continue
 				} else {
@@ -156,26 +163,10 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 		pastMatches: pastMatches,
 	}
 
-	enqueue(newClient)
+	queue[userID] = newClient
 
 	go newClient.writePump()
 	go newClient.readPump()
-}
-
-func enqueue(user *Client) {
-	log.Println("New user added to queue: ", user.clientID)
-	queue = append(queue, user)
-}
-
-func dequeue() *Client {
-	top := queue[0]
-	if len(queue) == 1 {
-		queue = make([]*Client, 0)
-		return top
-	} else {
-		queue = queue[1:]
-		return top
-	}
 }
 
 func (c *Client) readPump() {
