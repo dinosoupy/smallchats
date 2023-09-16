@@ -22,6 +22,7 @@ type Client struct {
 	conn     *websocket.Conn // websocket connection object
 	send     chan []byte    // channel for sending messages
 	receive 	chan []byte // channel for reciving messages
+	pastMatches	[]string // past matched clientsIDs (could be accepted or rejected)
 }
 
 type Message struct {
@@ -41,44 +42,13 @@ func main() {
 }
 
 func parseResponse(jsonResponse []byte) string {
-	var msg string
-	_ = json.Unmarshal(jsonResponse, &msg)
-	return msg
+	// var msg string
+	// _ = json.Unmarshal(jsonResponse, &msg)
+	log.Println("response was: ", string(jsonResponse))
+	return string(jsonResponse)
 }
 
-// func match() {
-// 	for {
-// 		if len(queue) > 1 {
-// 			clientA := dequeue()
-// 			clientB := dequeue()
-			
-// 			roomID:=uuid.New().String()
-// 			log.Println(roomID, clientA.clientID, clientB.clientID)
-
-// 			candidateA, _:=json.Marshal(&Candidate{
-// 				ClientID: clientA.clientID,
-// 				RoomID: roomID,
-// 			})
-
-// 			candidateB, _:=json.Marshal(&Candidate{
-// 				ClientID: clientB.clientID,
-// 				RoomID: roomID,
-// 			})
-
-// 			log.Printf("Trying to match users %v and %v", clientA.clientID, clientB.clientID)
-// 			log.Printf("Sending candidates %v and %v", string(candidateA), string(candidateB))
-
-// 			clientB.send<-candidateA
-// 			clientA.send<-candidateB
-			
-// 		} else {
-// 			log.Printf("Not enough users to match. Online: %d user(s)", len(queue))
-// 			time.Sleep(10 * time.Second)
-// 		}
-// 	}
-// }
-
-func askForApproval(clientA, clientB *Client, approvalChannel chan bool) {
+func askForApproval(clientA, clientB *Client) {
 	candidateA, _:=json.Marshal(&Message{
 		MsgType: "candidate",
 		Data: clientA.clientID,
@@ -100,11 +70,36 @@ func askForApproval(clientA, clientB *Client, approvalChannel chan bool) {
 
 	for responseA != "" && responseB != "" {
 		if responseA == "accept" && responseB == "accept" {
-			approvalChannel <- true
+			// queue = append(queue[:randIndexA], queue[randIndexA+1:]...)
+			// queue = append(queue[:randIndexB], queue[randIndexB+1:]...)
+
+			// create room id
+      roomID:=uuid.New().String()
+			log.Println(roomID, clientA.clientID, clientB.clientID)
+
+			// selected candidates become peers, both have common roomID
+			roomMsg, _:=json.Marshal(&Message{
+				MsgType: "room",
+				Data: roomID,
+			})
+
+			clientB.send<-roomMsg
+			clientA.send<-roomMsg
+
+			break
 		} else {
-			approvalChannel <- false
+			log.Println("At least one response was not 'accept'.")
 		}
 	}
+}
+
+func existsIn(target string, arr []string) bool {
+	for _, element := range arr {
+		if element == target {
+			return true
+		}
+	}
+	return false
 }
 
 func match() {
@@ -112,7 +107,6 @@ func match() {
 		if len(queue) > 1 {
 			var clientA, clientB *Client
 			var randIndexA, randIndexB int
-			var approvalChannel = make(chan bool)
 
 			// select random clients
 			for { 
@@ -120,40 +114,18 @@ func match() {
 				clientA = queue[randIndexA]
 				randIndexB=rand.Intn(len(queue))
 				clientB = queue[randIndexB]
-				if clientB != clientA {
+				if clientB == clientA || existsIn(clientB.clientID, clientA.pastMatches) {
+					continue
+				} else {
+					clientA.pastMatches = append(clientA.pastMatches, clientB.clientID)
+					clientB.pastMatches = append(clientB.pastMatches, clientA.clientID)
 					break
 				}
 			}
 
-			go askForApproval(clientA, clientB, approvalChannel)	
-
 			log.Println("Waiting for approval")
-			approval := <-approvalChannel
-
-			if approval {
-				// Both clients accepted the match
-        // Remove clients from queue
-        log.Printf("Match successful: %v and %v", clientA.clientID, clientB.clientID)
-        queue = append(queue[:randIndexA], queue[randIndexA+1:]...)
-        queue = append(queue[:randIndexB], queue[randIndexB+1:]...)
-
-        // create room id
-        roomID:=uuid.New().String()
-				log.Println(roomID, clientA.clientID, clientB.clientID)
-
-				// selected candidates become peers, both have common roomID
-				roomMsg, _:=json.Marshal(&Message{
-					MsgType: "room",
-					Data: roomID,
-				})
-
-				clientB.send<-roomMsg
-				clientA.send<-roomMsg
-
-			} else {
-				log.Println("At least one response was not 'accept'.")
-				continue
-			}
+			go askForApproval(clientA, clientB)	
+			log.Println("j aiccha")
 			
 		} else {
 			log.Printf("Not enough users to match. Online: %d user(s)", len(queue))
@@ -174,12 +146,14 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 
 	sendChannel := make(chan []byte, 512) // each message is a slice of bytes, 512 messages can be stored in buffer
 	receiveChannel := make(chan []byte, 512)
+	pastMatches := []string{userID} // ading self to past matches to prevent self matching
 
 	newClient := &Client{
 		clientID: userID,
 		conn:     conn,
 		send:     sendChannel,
 		receive: receiveChannel,
+		pastMatches: pastMatches,
 	}
 
 	enqueue(newClient)
