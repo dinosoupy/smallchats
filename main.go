@@ -1,37 +1,37 @@
 package main
 
 import (
+	"encoding/json"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"log"
+	"math/rand"
 	"net/http"
 	"time"
-	"math/rand"
-	"encoding/json"
-	"github.com/gorilla/websocket"
-	"github.com/google/uuid"
 )
 
 var queue = make(map[string]*Client) // global queue
 
 var (
 	newline = []byte{'\n'}
-	space = []byte{' '}
+	space   = []byte{' '}
 )
 
 type Client struct {
-	clientID string          // userID in supabase
-	conn     *websocket.Conn // websocket connection object
-	send     chan []byte    // channel for sending messages
-	receive 	chan []byte // channel for reciving messages
-	pastMatches	[]string // past matched clientsIDs (could be accepted or rejected)
+	clientID    string          // userID in supabase
+	conn        *websocket.Conn // websocket connection object
+	send        chan []byte     // channel for sending messages
+	receive     chan []byte     // channel for reciving messages
+	pastMatches []string        // past matched clientsIDs (could be accepted or rejected)
 }
 
 type Message struct {
 	MsgType string `json: "MsgType"`
-	Data string	`json:"Data"`
+	Data    string `json:"Data"`
 }
 
 func main() {
-	go match() 
+	go match()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "404: Page not found", 404)
@@ -49,21 +49,21 @@ func parseResponse(jsonResponse []byte) string {
 }
 
 func askForApproval(clientA, clientB *Client) {
-	candidateA, _:=json.Marshal(&Message{
+	candidateA, _ := json.Marshal(&Message{
 		MsgType: "candidate",
-		Data: clientA.clientID,
+		Data:    clientA.clientID,
 	})
 
-	candidateB, _:=json.Marshal(&Message{
+	candidateB, _ := json.Marshal(&Message{
 		MsgType: "candidate",
-		Data: clientB.clientID,
+		Data:    clientB.clientID,
 	})
 
 	log.Printf("Trying to match users %v and %v", clientA.clientID, clientB.clientID)
 	log.Printf("Sending candidates %v and %v", string(candidateA), string(candidateB))
 
-	clientB.send<-candidateA
-	clientA.send<-candidateB
+	clientB.send <- candidateA
+	clientA.send <- candidateB
 
 	responseA := parseResponse(<-clientA.receive)
 	responseB := parseResponse(<-clientB.receive)
@@ -71,17 +71,17 @@ func askForApproval(clientA, clientB *Client) {
 	for responseA != "" && responseB != "" {
 		if responseA == "accept" && responseB == "accept" {
 			// create room id
-      roomID:=uuid.New().String()
+			roomID := uuid.New().String()
 			log.Println(roomID, clientA.clientID, clientB.clientID)
 
 			// selected candidates become peers, both have common roomID
-			roomMsg, _:=json.Marshal(&Message{
+			roomMsg, _ := json.Marshal(&Message{
 				MsgType: "room",
-				Data: roomID,
+				Data:    roomID,
 			})
 
-			clientB.send<-roomMsg
-			clientA.send<-roomMsg
+			clientB.send <- roomMsg
+			clientA.send <- roomMsg
 
 			break
 		} else {
@@ -108,16 +108,16 @@ func match() {
 			var randIndexA, randIndexB int
 
 			// select random clients
-			for { 
+			for {
 				keys := make([]string, 0, len(queue))
 
 				for key := range queue {
 					keys = append(keys, key)
 				}
 
-				randIndexA=rand.Intn(len(keys))
+				randIndexA = rand.Intn(len(keys))
 				clientA = queue[keys[randIndexA]]
-				randIndexB=rand.Intn(len(keys))
+				randIndexB = rand.Intn(len(keys))
 				clientB = queue[keys[randIndexB]]
 
 				if clientB == clientA || existsIn(clientB.clientID, clientA.pastMatches) {
@@ -133,9 +133,9 @@ func match() {
 			delete(queue, clientB.clientID)
 
 			log.Println("Waiting for approval")
-			go askForApproval(clientA, clientB)	
+			go askForApproval(clientA, clientB)
 			log.Println("j aiccha")
-			
+
 		} else {
 			log.Printf("Not enough users to match. Online: %d user(s)", len(queue))
 			time.Sleep(10 * time.Second)
@@ -146,10 +146,10 @@ func match() {
 func serveWs(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Upgrade(w, r, nil, 512, 512)
 
-  if err != nil {
-      http.Error(w, "Internal server error", http.StatusInternalServerError)
-      return // stops execution if connection upgrade fails
-  }
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return // stops execution if connection upgrade fails
+	}
 
 	userID := r.URL.Query().Get("userid") // wss://localhost:8080?userid=0123435
 
@@ -158,10 +158,10 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	pastMatches := []string{userID} // ading self to past matches to prevent self matching
 
 	newClient := &Client{
-		clientID: userID,
-		conn:     conn,
-		send:     sendChannel,
-		receive: receiveChannel,
+		clientID:    userID,
+		conn:        conn,
+		send:        sendChannel,
+		receive:     receiveChannel,
 		pastMatches: pastMatches,
 	}
 
@@ -177,10 +177,10 @@ func (c *Client) readPump() {
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(131072)
-	c.conn.SetReadDeadline(time.Now().Add(60*time.Second))
+	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		log.Println("Closed at location 2")
-		c.conn.SetReadDeadline(time.Now().Add(60*time.Second))
+		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
 	for {
@@ -194,7 +194,7 @@ func (c *Client) readPump() {
 		}
 
 		// slice upto the first ',' - this is the messageType
-		// 
+		//
 		// messageType := string(message[:idx])
 		// messageBody:=string(message[idx+1:])
 
@@ -212,12 +212,12 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(10*time.Second))
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
 				log.Println("Closed at location 5")
 				// The server closed the channel
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return			
+				return
 			}
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
@@ -239,7 +239,7 @@ func (c *Client) writePump() {
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(10*time.Second))
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				log.Println("Closed at location 8")
 				return
